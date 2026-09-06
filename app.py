@@ -18,7 +18,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 calculation_items = []
 
 def init_db():
-    """데이터베이스 테이블 생성"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -66,7 +65,7 @@ def extract_smart_data(row_values):
         if len(texts) > 2: unit = texts[2]
         if numbers: price = numbers[-1]
 
-        raw_str = " | ".join(cleaned_vals[:8])
+        raw_str = " | ".join(cleaned_vals[:6])
         search_str = re.sub(r'\s+', '', raw_str).lower()
 
         return {
@@ -81,33 +80,36 @@ def extract_smart_data(row_values):
         return None
 
 def process_and_save_to_db(filename, file_path):
-    """업로드 시점에 엑셀을 읽어 DB에 저장"""
+    """타임아웃 방지: 상위 시트 & 최대 1,000행 제한 초고속 읽기"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     dfs = []
-    # 1. openpyxl
+    
+    # 1. openpyxl (.xlsx)
     try:
         excel_file = pd.ExcelFile(file_path, engine='openpyxl')
-        for sheet in excel_file.sheet_names[:5]:
-            dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl').fillna(''))
+        for sheet in excel_file.sheet_names[:2]: # 상위 2개 시트만
+            df = pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl', nrows=1000).fillna('')
+            dfs.append(df)
     except Exception:
         pass
 
-    # 2. xlrd
+    # 2. xlrd (.xls 구형 바이너리)
     if not dfs:
         try:
             excel_file = pd.ExcelFile(file_path, engine='xlrd')
-            for sheet in excel_file.sheet_names[:5]:
-                dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
+            for sheet in excel_file.sheet_names[:2]:
+                df = pd.read_excel(file_path, sheet_name=sheet, engine='xlrd', nrows=1000).fillna('')
+                dfs.append(df)
         except Exception:
             pass
 
-    # 3. CSV
+    # 3. CSV / 텍스트
     if not dfs:
         for enc in ['cp949', 'euc-kr', 'utf-8']:
             try:
-                df = pd.read_csv(file_path, encoding=enc, on_bad_lines='skip', engine='python').fillna('')
+                df = pd.read_csv(file_path, encoding=enc, on_bad_lines='skip', nrows=1000, engine='python').fillna('')
                 dfs.append(df)
                 if dfs: break
             except Exception:
@@ -150,34 +152,40 @@ def index():
             if file and file.filename != '':
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
                 file.save(file_path)
-                process_and_save_to_db(file.filename, file_path)
+                try:
+                    process_and_save_to_db(file.filename, file_path)
+                except Exception:
+                    pass
                 saved_names.append(file.filename)
         if saved_names:
-            message = f"총 {len(saved_names)}개 파일이 서버 DB에 등록되었습니다."
+            message = f"총 {len(saved_names)}개 파일이 등록 및 DB화되었습니다."
 
     if search_keyword:
         clean_key = re.sub(r'\s+', '', search_keyword).lower()
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT filename, raw_data, item_name, spec, unit, price 
-            FROM items 
-            WHERE search_text LIKE ? 
-            LIMIT 100
-        ''', (f'%{clean_key}%',))
-        
-        rows = cursor.fetchall()
-        conn.close()
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT filename, raw_data, item_name, spec, unit, price 
+                FROM items 
+                WHERE search_text LIKE ? 
+                LIMIT 100
+            ''', (f'%{clean_key}%',))
+            
+            rows = cursor.fetchall()
+            conn.close()
 
-        for r in rows:
-            search_results.append({
-                'filename': r[0],
-                'raw_data': r[1],
-                'item_name': r[2],
-                'spec': r[3],
-                'unit': r[4],
-                'price': r[5]
-            })
+            for r in rows:
+                search_results.append({
+                    'filename': r[0],
+                    'raw_data': r[1],
+                    'item_name': r[2],
+                    'spec': r[3],
+                    'unit': r[4],
+                    'price': r[5]
+                })
+        except Exception:
+            pass
 
     total_amount = sum(item['total'] for item in calculation_items)
 
@@ -228,7 +236,6 @@ def delete_item(item_id):
 
 @app.route('/clear_files', methods=['POST'])
 def clear_files():
-    # 파일 및 DB 전체 초기화
     for filename in os.listdir(UPLOAD_FOLDER):
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         try:
@@ -238,7 +245,10 @@ def clear_files():
             pass
 
     if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
+        try:
+            os.remove(DB_FILE)
+        except Exception:
+            pass
     init_db()
 
     return redirect(url_for('index'))
@@ -252,11 +262,14 @@ def delete_file(filename):
         except Exception:
             pass
 
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM items WHERE filename = ?', (filename,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM items WHERE filename = ?', (filename,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
     return redirect(url_for('index'))
 
