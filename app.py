@@ -1,5 +1,6 @@
 import os
 import shutil
+import re
 from flask import Flask, render_template, request, redirect, url_for
 import pandas as pd
 
@@ -11,51 +12,92 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# 메모리 기반 단가 산출 내역서 작업대
 calculation_items = []
+
+def extract_smart_data(row_values):
+    """
+    행 데이터에서 품목명, 규격, 단위, 단가를 유연하게 추출하는 스마트 파서
+    """
+    cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan']
+    if not cleaned_vals:
+        return None
+
+    item_name = cleaned_vals[0]
+    spec = '-'
+    unit = '식'
+    price = 0
+
+    # 숫자(단가) 및 문자를 지능적으로 구분
+    numbers = []
+    texts = []
+    for val in cleaned_vals:
+        # 천단위 콤마 및 통화기호 제거 후 숫자 판단
+        num_str = re.sub(r'[^0-9.]', '', val)
+        if num_str and val.replace(',', '').replace('.', '').isdigit():
+            numbers.append(float(num_str))
+        else:
+            texts.append(val)
+
+    if len(texts) > 0: item_name = texts[0]
+    if len(texts) > 1: spec = texts[1]
+    if len(texts) > 2: unit = texts[2]
+    
+    # 추출된 숫자 중 단가로 추정되는 값 선택 (가장 큰 유효 금액)
+    if numbers:
+        price = numbers[-1] # 보통 금액/단가는 행의 우측 끝에 위치함
+
+    return {
+        'item_name': item_name,
+        'spec': spec,
+        'unit': unit,
+        'price': price,
+        'raw_data': " | ".join(cleaned_vals)
+    }
 
 def search_in_excel_files(keyword):
     results = []
     if not keyword:
         return results
-    
-    files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.xls', '.xlsx'))]
-    
+
+    # 띄어쓰기 무시 검색을 위한 키워드 정규화
+    clean_keyword = re.sub(r'\s+', '', keyword).lower()
+    files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.xls', '.xlsx', '.csv'))]
+
     for filename in files:
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-        
-        # 1. 일반적인 방식으로 시도 (.xlsx 및 일반 .xls)
-        sheets_data = []
-        try:
-            excel_file = pd.ExcelFile(file_path)
-            for sheet_name in excel_file.sheet_names:
-                df = pd.read_excel(file_path, sheet_name=sheet_name).fillna('')
-                sheets_data.append(df)
-        except Exception:
-            # 2. 구형 .xls 포맷 대응 (xlrd 엔진 강제 사용)
-            try:
-                excel_file = pd.ExcelFile(file_path, engine='xlrd')
-                for sheet_name in excel_file.sheet_names:
-                    df = pd.read_excel(file_path, sheet_name=sheet_name, engine='xlrd').fillna('')
-                    sheets_data.append(df)
-            except Exception:
-                continue
+        dfs = []
 
-        # 검색어 매칭 로직
-        for df in sheets_data:
+        # 1. 파일 형식별 예외 없는 읽기 처리
+        try:
+            if filename.endswith('.csv'):
+                dfs.append(pd.read_csv(file_path).fillna(''))
+            else:
+                try:
+                    excel_file = pd.ExcelFile(file_path)
+                    for sheet in excel_file.sheet_names:
+                        dfs.append(pd.read_excel(file_path, sheet_name=sheet).fillna(''))
+                except Exception:
+                    # 구형 .xls 포맷 대응
+                    excel_file = pd.ExcelFile(file_path, engine='xlrd')
+                    for sheet in excel_file.sheet_names:
+                        dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
+        except Exception:
+            continue
+
+        # 2. 융통성 있는 데이터 검색
+        for df in dfs:
             for idx, row in df.iterrows():
-                row_str = " ".join([str(val) for val in row.values])
-                if keyword.lower() in row_str.lower():
-                    vals = [str(v).strip() for v in row.values if str(v).strip() != '']
-                    if len(vals) >= 2:
-                        results.append({
-                            'filename': filename,
-                            'item_name': vals[0] if len(vals) > 0 else '품목',
-                            'spec': vals[1] if len(vals) > 1 else '-',
-                            'unit': vals[2] if len(vals) > 2 else '식',
-                            'price': vals[3] if len(vals) > 3 else '0',
-                            'raw_data': " | ".join(vals[:6])
-                        })
-                    if len(results) >= 50:
+                row_str = "".join([str(val) for val in row.values])
+                clean_row_str = re.sub(r'\s+', '', row_str).lower()
+
+                if clean_keyword in clean_row_str:
+                    parsed = extract_smart_data(row.values)
+                    if parsed:
+                        parsed['filename'] = filename
+                        results.append(parsed)
+                    
+                    if len(results) >= 100: # 최대 100개까지 확장 검색
                         return results
     return results
 
@@ -65,7 +107,7 @@ def index():
     message = None
     search_keyword = request.args.get('keyword', '')
     search_results = []
-    
+
     if request.method == 'POST' and 'files' in request.files:
         uploaded_files = request.files.getlist('files')
         saved_names = []
@@ -82,11 +124,11 @@ def index():
 
     total_amount = sum(item['total'] for item in calculation_items)
     current_files = os.listdir(app.config['UPLOAD_FOLDER'])
-    
-    return render_template('index.html', 
-                           message=message, 
-                           current_files=current_files, 
-                           search_results=search_results, 
+
+    return render_template('index.html',
+                           message=message,
+                           current_files=current_files,
+                           search_results=search_results,
                            keyword=search_keyword,
                            calc_items=calculation_items,
                            total_amount=total_amount)
@@ -104,7 +146,7 @@ def add_item():
     except ValueError:
         price = 0
         qty = 1
-    
+
     total = price * qty
     calculation_items.append({
         'id': len(calculation_items) + 1,
