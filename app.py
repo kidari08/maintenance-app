@@ -80,7 +80,7 @@ def extract_smart_data(row_values):
         return None
 
 def process_and_save_to_db(filename, file_path):
-    """타임아웃 방지: 상위 시트 & 최대 1,000행 제한 초고속 읽기"""
+    """모든 엔진 및 HTML 표 형태까지 완전 방어형 다중 파싱"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
@@ -89,13 +89,13 @@ def process_and_save_to_db(filename, file_path):
     # 1. openpyxl (.xlsx)
     try:
         excel_file = pd.ExcelFile(file_path, engine='openpyxl')
-        for sheet in excel_file.sheet_names[:2]: # 상위 2개 시트만
+        for sheet in excel_file.sheet_names[:2]:
             df = pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl', nrows=1000).fillna('')
             dfs.append(df)
     except Exception:
         pass
 
-    # 2. xlrd (.xls 구형 바이너리)
+    # 2. xlrd (.xls 구형)
     if not dfs:
         try:
             excel_file = pd.ExcelFile(file_path, engine='xlrd')
@@ -105,7 +105,16 @@ def process_and_save_to_db(filename, file_path):
         except Exception:
             pass
 
-    # 3. CSV / 텍스트
+    # 3. HTML 표 형태 (.xlsx로 위장한 HTML)
+    if not dfs:
+        try:
+            tables = pd.read_html(file_path)
+            for df in tables[:2]:
+                dfs.append(df.iloc[:1000].fillna(''))
+        except Exception:
+            pass
+
+    # 4. CSV / 텍스트
     if not dfs:
         for enc in ['cp949', 'euc-kr', 'utf-8']:
             try:
@@ -130,10 +139,11 @@ def process_and_save_to_db(filename, file_path):
                     parsed['search_text']
                 ))
 
-    cursor.executemany('''
-        INSERT INTO items (filename, raw_data, item_name, spec, unit, price, search_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', db_rows)
+    if db_rows:
+        cursor.executemany('''
+            INSERT INTO items (filename, raw_data, item_name, spec, unit, price, search_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', db_rows)
 
     conn.commit()
     conn.close()
