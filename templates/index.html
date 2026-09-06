@@ -5,22 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>유지관리 단가 산출 및 설계 시스템</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; background-color: #f4f6f9; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        h1 { text-align: center; color: #1f2937; margin-bottom: 25px; }
-        .card { border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px; background-color: #ffffff; }
-        .btn { background-color: #10b981; color: white; border: none; padding: 8px 14px; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+        body { font-family: 'Noto Sans KR', sans-serif; margin: 20px; background-color: #f3f4f6; color: #1f2937; }
+        .container { max-width: 1100px; margin: 0 auto; background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h1 { text-align: center; color: #1e3a8a; margin-bottom: 25px; font-size: 26px; }
+        .card { border: 1px solid #e5e7eb; padding: 20px; border-radius: 10px; margin-bottom: 20px; background-color: #ffffff; }
+        .btn { background-color: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; text-decoration: none; font-weight: bold; }
         .btn-blue { background-color: #2563eb; }
         .btn-red { background-color: #ef4444; }
-        .btn-gray { background-color: #6b7280; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        th, td { border: 1px solid #d1d5db; padding: 8px; text-align: center; }
-        th { background-color: #f3f4f6; font-weight: bold; }
-        input[type="text"], input[type="number"] { padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+        .btn-gray { background-color: #4b5563; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+        th, td { border: 1px solid #d1d5db; padding: 10px; text-align: center; }
+        th { background-color: #f8fafc; font-weight: bold; color: #334155; }
+        input[type="text"], input[type="number"] { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
         .text-left { text-align: left; }
         .text-right { text-align: right; }
-        .total-box { background-color: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; font-size: 18px; font-weight: bold; text-align: right; margin-top: 15px; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed #e5e7eb; }
+        .total-box { background-color: #fef3c7; border: 1px solid #f59e0b; padding: 18px; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: right; margin-top: 15px; color: #92400e; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #f1f5f9; background: #fafafa; margin-bottom: 4px; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -28,22 +28,23 @@
 <div class="container">
     <h1>🛠️ 유지관리 단가 산출 및 설계 시스템</h1>
 
-    <!-- 1. 단가집 검색 및 설계서 반영 -->
-    <div class="card" style="background-color: #f0f9ff; border-color: #bae6fd;">
-        <h3>🔍 1. 등록된 단가집 검색 & 설계 반영</h3>
-        <form method="GET" action="/">
-            <input type="text" name="keyword" value="{{ keyword }}" placeholder="검색할 품목/공종 입력 (예: 노임, 자재)" style="width: 65%;">
-            <button type="submit" class="btn btn-blue">실시간 검색</button>
+    <!-- 1. 단가집 검색 영역 -->
+    <div class="card" style="background-color: #eff6ff; border-color: #bfdbfe;">
+        <h3 style="color: #1e40af; margin-top: 0;">🔍 1. 등록된 단가집 검색 & 설계 반영</h3>
+        <form method="GET" action="/" style="display: flex; gap: 10px;">
+            <input type="text" name="keyword" value="{{ keyword }}" placeholder="검색어 입력 (예: 신축이음, 노임, 자재)" style="flex: 1;">
+            <button type="submit" class="btn btn-blue">실시간 통합 검색</button>
         </form>
 
         {% if search_results %}
-            <h4 style="margin-top: 15px;">검색 결과 (원하는 품목을 산출서에 추가하세요)</h4>
+            <h4 style="margin-top: 20px; color: #1e3a8a;">검색 결과 (총 {{ search_results|length }}건)</h4>
             <table>
                 <thead>
                     <tr>
-                        <th>출처 파일</th>
-                        <th>항목 내용</th>
-                        <th>산출서 반영하기</th>
+                        <th style="width: 15%;">출처 파일</th>
+                        <th style="width: 45%;">항목 텍스트 내용</th>
+                        <th style="width: 15%;">감지 단가(원)</th>
+                        <th style="width: 25%;">산출서 반영</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -51,13 +52,14 @@
                         <tr>
                             <td>{{ item.filename }}</td>
                             <td class="text-left">{{ item.raw_data }}</td>
+                            <td class="text-right">{{ "{:,.0f}".format(item.price) }}</td>
                             <td>
-                                <form method="POST" action="/add_item" style="display: flex; gap: 4px; justify-content: center;">
+                                <form method="POST" action="/add_item" style="display: flex; gap: 6px; justify-content: center;">
                                     <input type="hidden" name="name" value="{{ item.item_name }}">
                                     <input type="hidden" name="spec" value="{{ item.spec }}">
                                     <input type="hidden" name="unit" value="{{ item.unit }}">
                                     <input type="hidden" name="price" value="{{ item.price }}">
-                                    <input type="number" name="qty" value="1" step="0.1" style="width: 50px;">
+                                    <input type="number" name="qty" value="1" step="0.1" style="width: 60px; text-align: center;">
                                     <button type="submit" class="btn">담기</button>
                                 </form>
                             </td>
@@ -68,17 +70,16 @@
         {% endif %}
     </div>
 
-    <!-- 2. 단가 산출 내역서 작업대 -->
+    <!-- 2. 내역서 작업대 -->
     <div class="card" style="border-color: #10b981;">
-        <h3>📋 2. 단가 산출 내역서 설계 작업대</h3>
+        <h3 style="color: #065f46; margin-top: 0;">📋 2. 단가 산출 내역서 설계 작업대</h3>
         
-        <!-- 수동 추가 폼 -->
-        <form method="POST" action="/add_item" style="margin-bottom: 15px; display: flex; gap: 8px; flex-wrap: wrap;">
-            <input type="text" name="name" placeholder="품목/공종명" required style="width: 20%;">
-            <input type="text" name="spec" placeholder="규격" style="width: 15%;">
-            <input type="text" name="unit" placeholder="단위" style="width: 10%;">
-            <input type="text" name="price" placeholder="단가(원)" required style="width: 15%;">
-            <input type="number" name="qty" placeholder="수량" value="1" step="0.01" required style="width: 10%;">
+        <form method="POST" action="/add_item" style="margin-bottom: 15px; display: flex; gap: 8px;">
+            <input type="text" name="name" placeholder="품목/공종명" required style="flex: 2;">
+            <input type="text" name="spec" placeholder="규격" style="flex: 1;">
+            <input type="text" name="unit" placeholder="단위" style="flex: 1;">
+            <input type="text" name="price" placeholder="단가(원)" required style="flex: 1.5;">
+            <input type="number" name="qty" placeholder="수량" value="1" step="0.01" required style="flex: 1;">
             <button type="submit" class="btn">직접 추가</button>
         </form>
 
@@ -106,45 +107,45 @@
                             <td class="text-right">{{ "{:,.0f}".format(item.price) }}</td>
                             <td>{{ item.qty }}</td>
                             <td class="text-right">{{ "{:,.0f}".format(item.total) }}</td>
-                            <td><a href="/delete_item/{{ item.id }}" class="btn btn-red" style="padding: 2px 6px; font-size: 12px;">삭제</a></td>
+                            <td><a href="/delete_item/{{ item.id }}" class="btn btn-red" style="padding: 4px 8px; font-size: 12px;">삭제</a></td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
 
             <div class="total-box">
-                총 산출 금액합계: {{ "{:,.0f}".format(total_amount) }} 원
+                총 산출 금액 합계: {{ "{:,.0f}".format(total_amount) }} 원
             </div>
         {% else %}
-            <p style="color: #6b7280; text-align: center; padding: 20px 0;">작업대에 추가된 품목이 없습니다. 위에서 검색 후 '담기'를 누르거나 직접 추가하세요.</p>
+            <p style="color: #6b7280; text-align: center; padding: 20px 0;">작업대가 비어 있습니다. 위 검색 결과에서 '담기'를 누르시면 이곳에 내역서가 자동으로 작성됩니다.</p>
         {% endif %}
     </div>
 
-    <!-- 3. 서버 파일 삭제 및 업로드 관리 -->
+    <!-- 3. 데이터 파일 관리 -->
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3>📁 3. 서버 단가 데이터 관리 (총 {{ current_files|length }}개)</h3>
+            <h3 style="margin: 0; color: #374151;">📁 3. 서버 단가 데이터 관리 (총 {{ current_files|length }}개)</h3>
             <form method="POST" action="/clear_files" onsubmit="return confirm('서버의 모든 파일 데이터를 삭제하시겠습니까?');">
                 <button type="submit" class="btn btn-red">🔴 서버 파일 전체 삭제</button>
             </form>
         </div>
 
-        <form method="POST" enctype="multipart/form-data" style="margin-bottom: 15px;">
-            <input type="file" name="files" multiple accept=".xls,.xlsx">
+        <form method="POST" enctype="multipart/form-data" style="margin-bottom: 15px; display: flex; gap: 10px;">
+            <input type="file" name="files" multiple accept=".xls,.xlsx,.csv" style="flex: 1;">
             <button type="submit" class="btn btn-gray">단가집 신규 업로드</button>
         </form>
 
         {% if current_files %}
-            <div style="background: #f9fafb; padding: 10px; border-radius: 4px; border: 1px solid #e5e7eb;">
+            <div style="max-height: 250px; overflow-y: auto;">
                 {% for file_name in current_files %}
                     <div class="file-item">
                         <span>📄 {{ file_name }}</span>
-                        <a href="/delete_file/{{ file_name }}" class="btn btn-red" style="padding: 2px 8px; font-size: 12px;" onclick="return confirm('이 파일을 삭제하시겠습니까?');">삭제</a>
+                        <a href="/delete_file/{{ file_name }}" class="btn btn-red" style="padding: 3px 8px; font-size: 12px;" onclick="return confirm('이 파일을 삭제하시겠습니까?');">삭제</a>
                     </div>
                 {% endfor %}
             </div>
         {% else %}
-            <p style="color: #6c757d;">현재 업로드된 파일이 없습니다.</p>
+            <p style="color: #6b7280;">현재 업로드된 파일이 없습니다.</p>
         {% endif %}
     </div>
 </div>
