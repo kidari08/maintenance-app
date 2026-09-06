@@ -15,53 +15,47 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 calculation_items = []
 
 def extract_smart_data(row_values):
-    cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan' and str(v).strip() != 'None']
-    if not cleaned_vals:
+    try:
+        cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan' and str(v).strip() != 'None']
+        if not cleaned_vals:
+            return None
+
+        item_name = cleaned_vals[0]
+        spec = '-'
+        unit = '식'
+        price = 0
+
+        numbers = []
+        texts = []
+        for val in cleaned_vals:
+            num_str = re.sub(r'[^0-9.]', '', val)
+            if num_str and val.replace(',', '').replace('.', '').strip().isdigit():
+                try:
+                    numbers.append(float(num_str))
+                except ValueError:
+                    pass
+            else:
+                texts.append(val)
+
+        if len(texts) > 0: item_name = texts[0]
+        if len(texts) > 1: spec = texts[1]
+        if len(texts) > 2: unit = texts[2]
+        if numbers: price = numbers[-1]
+
+        return {
+            'item_name': item_name,
+            'spec': spec,
+            'unit': unit,
+            'price': price,
+            'raw_data': " | ".join(cleaned_vals)
+        }
+    except Exception:
         return None
-
-    item_name = cleaned_vals[0]
-    spec = '-'
-    unit = '식'
-    price = 0
-
-    numbers = []
-    texts = []
-    for val in cleaned_vals:
-        # 콤마, 통화표시 제거
-        num_str = re.sub(r'[^0-9.]', '', val)
-        if num_str and val.replace(',', '').replace('.', '').strip().isdigit():
-            try:
-                numbers.append(float(num_str))
-            except ValueError:
-                pass
-        else:
-            texts.append(val)
-
-    if len(texts) > 0: item_name = texts[0]
-    if len(texts) > 1: spec = texts[1]
-    if len(texts) > 2: unit = texts[2]
-    if numbers: price = numbers[-1]
-
-    return {
-        'item_name': item_name,
-        'spec': spec,
-        'unit': unit,
-        'price': price,
-        'raw_data': " | ".join(cleaned_vals)
-    }
 
 def read_file_safely(file_path):
     dfs = []
-    # 1. xlrd 엔진으로 구형 .xls 읽기 시도
-    try:
-        excel_file = pd.ExcelFile(file_path, engine='xlrd')
-        for sheet in excel_file.sheet_names:
-            dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
-        if dfs: return dfs
-    except Exception:
-        pass
 
-    # 2. openpyxl 엔진으로 .xlsx 읽기 시도
+    # 1. openpyxl (.xlsx)
     try:
         excel_file = pd.ExcelFile(file_path, engine='openpyxl')
         for sheet in excel_file.sheet_names:
@@ -70,7 +64,16 @@ def read_file_safely(file_path):
     except Exception:
         pass
 
-    # 3. HTML/XML 기반 .xls 읽기 시도
+    # 2. xlrd (.xls)
+    try:
+        excel_file = pd.ExcelFile(file_path, engine='xlrd')
+        for sheet in excel_file.sheet_names:
+            dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
+        if dfs: return dfs
+    except Exception:
+        pass
+
+    # 3. HTML 표 포맷 (.xls로 저장된 HTML)
     try:
         tables = pd.read_html(file_path)
         for df in tables:
@@ -79,7 +82,7 @@ def read_file_safely(file_path):
     except Exception:
         pass
 
-    # 4. 텍스트/CSV 파싱 시도
+    # 4. CSV/텍스트 포맷
     for enc in ['cp949', 'euc-kr', 'utf-8']:
         try:
             df = pd.read_csv(file_path, encoding=enc, on_bad_lines='skip', sep=None, engine='python').fillna('')
@@ -96,25 +99,32 @@ def search_in_excel_files(keyword):
         return results
 
     clean_keyword = re.sub(r'\s+', '', keyword).lower()
-    files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.xls', '.xlsx', '.csv'))]
+    
+    try:
+        files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.xls', '.xlsx', '.csv'))]
+    except Exception:
+        return []
 
     for filename in files:
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-        dfs = read_file_safely(file_path)
+        try:
+            dfs = read_file_safely(file_path)
 
-        for df in dfs:
-            for idx, row in df.iterrows():
-                # 행 전체 텍스트 결합 (공백 제거 후 검색)
-                row_str = " ".join([str(val) for val in row.values])
-                clean_row_str = re.sub(r'\s+', '', row_str).lower()
+            for df in dfs:
+                for idx, row in df.iterrows():
+                    row_str = " ".join([str(val) for val in row.values])
+                    clean_row_str = re.sub(r'\s+', '', row_str).lower()
 
-                if clean_keyword in clean_row_str:
-                    parsed = extract_smart_data(row.values)
-                    if parsed:
-                        parsed['filename'] = filename
-                        results.append(parsed)
-                    if len(results) >= 100:
-                        return results
+                    if clean_keyword in clean_row_str:
+                        parsed = extract_smart_data(row.values)
+                        if parsed:
+                            parsed['filename'] = filename
+                            results.append(parsed)
+                        if len(results) >= 100:
+                            return results
+        except Exception:
+            continue
+            
     return results
 
 @app.route('/', methods=['GET', 'POST'])
@@ -139,7 +149,11 @@ def index():
         search_results = search_in_excel_files(search_keyword)
 
     total_amount = sum(item['total'] for item in calculation_items)
-    current_files = os.listdir(app.config['UPLOAD_FOLDER'])
+    
+    try:
+        current_files = os.listdir(app.config['UPLOAD_FOLDER'])
+    except Exception:
+        current_files = []
 
     return render_template('index.html',
                            message=message,
@@ -198,7 +212,10 @@ def clear_files():
 def delete_file(filename):
     file_path = os.path.join(UPLOAD_FOLDER, filename)
     if os.path.exists(file_path):
-        os.remove(file_path)
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
