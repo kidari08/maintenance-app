@@ -5,75 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>유지관리 단가 산출 시스템</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #f4f7f6; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }
-        input[type="text"], input[type="number"], input[type="file"] { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-        button { background-color: #28a745; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
-        button:hover { background-color: #218838; }
-        .result-box { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-top: 15px; }
+        body { font-family: sans-serif; margin: 30px; background-color: #f8f9fa; }
+        .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; }
+        .card { border: 1px solid #e0e0e0; padding: 20px; border-radius: 6px; margin-bottom: 20px; }
+        .btn { background-color: #28a745; color: white; border: none; padding: 10px 15px; width: 100%; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        .btn:hover { background-color: #218838; }
+        .alert { color: #155724; background-color: #d4edda; border-color: #c3e6cb; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        ul { background: #f1f3f5; padding: 15px 30px; border-radius: 4px; }
+        li { margin-bottom: 5px; font-weight: bold; color: #495057; }
+        input[type="file"] { margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>유지관리 단가 산출 시스템 (2026/2027)</h1>
-        
-        <!-- 엑셀 단가집 업로드 섹션 -->
-        <div class="section">
-            <h3>1. 단가집 엑셀 데이터 등록</h3>
-            <input type="file" id="excelFile" accept=".xlsx, .xls">
-            <button onclick="uploadExcel()">단가 데이터 업로드</button>
-            <p id="uploadStatus" style="color: blue;"></p>
-        </div>
 
-        <!-- 단가 내역 계산 섹션 -->
-        <div class="section">
-            <h3>2. 내역 산출 테스트</h3>
-            <input type="text" id="itemName" placeholder="공종/품목명 입력 (예: 노임단가, 자재비)">
-            <input type="number" id="quantity" placeholder="수량 입력">
-            <input type="number" id="unitPrice" placeholder="단가 입력 (원)">
-            <button onclick="calculatePrice()">단가 산출 계산</button>
-            
-            <div class="result-box" id="resultArea" style="display:none;">
-                <h4>산출 결과:</h4>
-                <p>품목: <span id="resItem"></span></p>
-                <p>총 금액: <strong><span id="resTotal"></span> 원</strong></p>
-            </div>
-        </div>
+<div class="container">
+    <h1>유지관리 단가 산출 시스템 (2026/2027)</h1>
+
+    <!-- 1. 다중 엑셀 파일 등록 -->
+    <div class="card">
+        <h3>1. 단가지 엑셀 데이터 등록 (복수 선택 가능)</h3>
+        <form method="POST" enctype="multipart/form-data">
+            <!-- multiple 속성을 추가하여 Ctrl/Shift 키로 여러 개 선택 가능 -->
+            <input type="file" name="files" multiple accept=".xls,.xlsx">
+            <button type="submit" class="btn">단가 데이터 업로드</button>
+        </form>
+
+        {% if message %}
+            <div class="alert">{{ message }}</div>
+        {% endif %}
     </div>
 
-    <script>
-        async function uploadExcel() {
-            const fileInput = document.getElementById('excelFile');
-            if(!fileInput.files[0]) {
-                alert('파일을 선택해 주세요.');
-                return;
-            }
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+    <!-- 2. 업로드된 파일 목록 확인 -->
+    <div class="card">
+        <h3>2. 서버에 등록된 파일 목록</h3>
+        {% if current_files %}
+            <ul>
+                {% for file_name in current_files %}
+                    <li>📄 {{ file_name }}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p style="color: #6c757d;">현재 업로드된 파일이 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
 
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await res.json();
-            document.getElementById('uploadStatus').innerText = data.message || data.error;
-        }
-
-        async function calculatePrice() {
-            const itemName = document.getElementById('itemName').value;
-            const quantity = document.getElementById('quantity').value;
-            const unitPrice = document.getElementById('unitPrice').value;
-
-            const res = await fetch('/calculate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item_name: itemName, quantity: quantity, unit_price: unitPrice })
-            });
-            const data = await res.json();
-            
-            document.getElementById('resItem').innerText = data.item_name;
-            document.getElementById('resTotal').innerText = data.total_price.toLocaleString();
-            document.getElementById('resultArea').style.display = 'block';
-        }
-    </script>
 </body>
 </html>
