@@ -22,27 +22,41 @@ def search_in_excel_files(keyword):
     
     for filename in files:
         file_path = os.path.join(UPLOAD_FOLDER, filename)
+        
+        # 1. 일반적인 방식으로 시도 (.xlsx 및 일반 .xls)
+        sheets_data = []
         try:
             excel_file = pd.ExcelFile(file_path)
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(file_path, sheet_name=sheet_name).fillna('')
-                for idx, row in df.iterrows():
-                    row_str = " ".join([str(val) for val in row.values])
-                    if keyword.lower() in row_str.lower():
-                        vals = [str(v) for v in row.values if str(v).strip() != '']
-                        if len(vals) >= 2:
-                            results.append({
-                                'filename': filename,
-                                'item_name': vals[0] if len(vals) > 0 else '품목',
-                                'spec': vals[1] if len(vals) > 1 else '-',
-                                'unit': vals[2] if len(vals) > 2 else '식',
-                                'price': vals[3] if len(vals) > 3 else '0',
-                                'raw_data': " | ".join(vals[:5])
-                            })
-                        if len(results) >= 30:
-                            return results
+                sheets_data.append(df)
         except Exception:
-            continue
+            # 2. 구형 .xls 포맷 대응 (xlrd 엔진 강제 사용)
+            try:
+                excel_file = pd.ExcelFile(file_path, engine='xlrd')
+                for sheet_name in excel_file.sheet_names:
+                    df = pd.read_excel(file_path, sheet_name=sheet_name, engine='xlrd').fillna('')
+                    sheets_data.append(df)
+            except Exception:
+                continue
+
+        # 검색어 매칭 로직
+        for df in sheets_data:
+            for idx, row in df.iterrows():
+                row_str = " ".join([str(val) for val in row.values])
+                if keyword.lower() in row_str.lower():
+                    vals = [str(v).strip() for v in row.values if str(v).strip() != '']
+                    if len(vals) >= 2:
+                        results.append({
+                            'filename': filename,
+                            'item_name': vals[0] if len(vals) > 0 else '품목',
+                            'spec': vals[1] if len(vals) > 1 else '-',
+                            'unit': vals[2] if len(vals) > 2 else '식',
+                            'price': vals[3] if len(vals) > 3 else '0',
+                            'raw_data': " | ".join(vals[:6])
+                        })
+                    if len(results) >= 50:
+                        return results
     return results
 
 @app.route('/', methods=['GET', 'POST'])
@@ -109,7 +123,6 @@ def delete_item(item_id):
     calculation_items = [item for item in calculation_items if item['id'] != item_id]
     return redirect(url_for('index'))
 
-# 전체 파일 삭제
 @app.route('/clear_files', methods=['POST'])
 def clear_files():
     for filename in os.listdir(UPLOAD_FOLDER):
@@ -123,7 +136,6 @@ def clear_files():
             pass
     return redirect(url_for('index'))
 
-# 개별 파일 삭제
 @app.route('/delete_file/<filename>')
 def delete_file(filename):
     file_path = os.path.join(UPLOAD_FOLDER, filename)
