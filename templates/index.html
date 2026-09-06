@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>유지관리 단가 산출 시스템</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #f4f7f6; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }
+        input[type="text"], input[type="number"], input[type="file"] { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background-color: #28a745; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
+        button:hover { background-color: #218838; }
+        .result-box { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>유지관리 단가 산출 시스템 (2026/2027)</h1>
+        
+        <!-- 엑셀 단가집 업로드 섹션 -->
+        <div class="section">
+            <h3>1. 단가집 엑셀 데이터 등록</h3>
+            <input type="file" id="excelFile" accept=".xlsx, .xls">
+            <button onclick="uploadExcel()">단가 데이터 업로드</button>
+            <p id="uploadStatus" style="color: blue;"></p>
+        </div>
+
+        <!-- 단가 내역 계산 섹션 -->
+        <div class="section">
+            <h3>2. 내역 산출 테스트</h3>
+            <input type="text" id="itemName" placeholder="공종/품목명 입력 (예: 노임단가, 자재비)">
+            <input type="number" id="quantity" placeholder="수량 입력">
+            <input type="number" id="unitPrice" placeholder="단가 입력 (원)">
+            <button onclick="calculatePrice()">단가 산출 계산</button>
+            
+            <div class="result-box" id="resultArea" style="display:none;">
+                <h4>산출 결과:</h4>
+                <p>품목: <span id="resItem"></span></p>
+                <p>총 금액: <strong><span id="resTotal"></span> 원</strong></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function uploadExcel() {
+            const fileInput = document.getElementById('excelFile');
+            if(!fileInput.files[0]) {
+                alert('파일을 선택해 주세요.');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            document.getElementById('uploadStatus').innerText = data.message || data.error;
+        }
+
+        async function calculatePrice() {
+            const itemName = document.getElementById('itemName').value;
+            const quantity = document.getElementById('quantity').value;
+            const unitPrice = document.getElementById('unitPrice').value;
+
+            const res = await fetch('/calculate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_name: itemName, quantity: quantity, unit_price: unitPrice })
+            });
+            const data = await res.json();
+            
+            document.getElementById('resItem').innerText = data.item_name;
+            document.getElementById('resTotal').innerText = data.total_price.toLocaleString();
+            document.getElementById('resultArea').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
