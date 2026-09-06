@@ -15,7 +15,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 calculation_items = []
 
 def extract_smart_data(row_values):
-    cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan']
+    cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan' and str(v).strip() != 'None']
     if not cleaned_vals:
         return None
 
@@ -27,8 +27,9 @@ def extract_smart_data(row_values):
     numbers = []
     texts = []
     for val in cleaned_vals:
+        # 콤마, 통화표시 제거
         num_str = re.sub(r'[^0-9.]', '', val)
-        if num_str and val.replace(',', '').replace('.', '').isdigit():
+        if num_str and val.replace(',', '').replace('.', '').strip().isdigit():
             try:
                 numbers.append(float(num_str))
             except ValueError:
@@ -50,23 +51,40 @@ def extract_smart_data(row_values):
     }
 
 def read_file_safely(file_path):
-    """표준 .xlsx 및 CSV, 텍스트 파일 읽기"""
     dfs = []
-    # 1. .xlsx 파일 읽기
+    # 1. xlrd 엔진으로 구형 .xls 읽기 시도
     try:
-        excel_file = pd.ExcelFile(file_path)
+        excel_file = pd.ExcelFile(file_path, engine='xlrd')
         for sheet in excel_file.sheet_names:
-            dfs.append(pd.read_excel(file_path, sheet_name=sheet).fillna(''))
-        return dfs
+            dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
+        if dfs: return dfs
     except Exception:
         pass
 
-    # 2. CSV / 텍스트 기반 파일 읽기
-    for enc in ['cp949', 'utf-8', 'euc-kr']:
+    # 2. openpyxl 엔진으로 .xlsx 읽기 시도
+    try:
+        excel_file = pd.ExcelFile(file_path, engine='openpyxl')
+        for sheet in excel_file.sheet_names:
+            dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl').fillna(''))
+        if dfs: return dfs
+    except Exception:
+        pass
+
+    # 3. HTML/XML 기반 .xls 읽기 시도
+    try:
+        tables = pd.read_html(file_path)
+        for df in tables:
+            dfs.append(df.fillna(''))
+        if dfs: return dfs
+    except Exception:
+        pass
+
+    # 4. 텍스트/CSV 파싱 시도
+    for enc in ['cp949', 'euc-kr', 'utf-8']:
         try:
             df = pd.read_csv(file_path, encoding=enc, on_bad_lines='skip', sep=None, engine='python').fillna('')
             dfs.append(df)
-            return dfs
+            if dfs: return dfs
         except Exception:
             pass
 
@@ -82,22 +100,21 @@ def search_in_excel_files(keyword):
 
     for filename in files:
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-        try:
-            dfs = read_file_safely(file_path)
-            for df in dfs:
-                for idx, row in df.iterrows():
-                    row_str = "".join([str(val) for val in row.values])
-                    clean_row_str = re.sub(r'\s+', '', row_str).lower()
+        dfs = read_file_safely(file_path)
 
-                    if clean_keyword in clean_row_str:
-                        parsed = extract_smart_data(row.values)
-                        if parsed:
-                            parsed['filename'] = filename
-                            results.append(parsed)
-                        if len(results) >= 100:
-                            return results
-        except Exception:
-            continue
+        for df in dfs:
+            for idx, row in df.iterrows():
+                # 행 전체 텍스트 결합 (공백 제거 후 검색)
+                row_str = " ".join([str(val) for val in row.values])
+                clean_row_str = re.sub(r'\s+', '', row_str).lower()
+
+                if clean_keyword in clean_row_str:
+                    parsed = extract_smart_data(row.values)
+                    if parsed:
+                        parsed['filename'] = filename
+                        results.append(parsed)
+                    if len(results) >= 100:
+                        return results
     return results
 
 @app.route('/', methods=['GET', 'POST'])
