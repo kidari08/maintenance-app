@@ -12,13 +12,9 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# 메모리 기반 단가 산출 내역서 작업대
 calculation_items = []
 
 def extract_smart_data(row_values):
-    """
-    행 데이터에서 품목명, 규격, 단위, 단가를 유연하게 추출하는 스마트 파서
-    """
     cleaned_vals = [str(v).strip() for v in row_values if str(v).strip() != '' and str(v).strip() != 'nan']
     if not cleaned_vals:
         return None
@@ -28,24 +24,22 @@ def extract_smart_data(row_values):
     unit = '식'
     price = 0
 
-    # 숫자(단가) 및 문자를 지능적으로 구분
     numbers = []
     texts = []
     for val in cleaned_vals:
-        # 천단위 콤마 및 통화기호 제거 후 숫자 판단
         num_str = re.sub(r'[^0-9.]', '', val)
         if num_str and val.replace(',', '').replace('.', '').isdigit():
-            numbers.append(float(num_str))
+            try:
+                numbers.append(float(num_str))
+            except ValueError:
+                pass
         else:
             texts.append(val)
 
     if len(texts) > 0: item_name = texts[0]
     if len(texts) > 1: spec = texts[1]
     if len(texts) > 2: unit = texts[2]
-    
-    # 추출된 숫자 중 단가로 추정되는 값 선택 (가장 큰 유효 금액)
-    if numbers:
-        price = numbers[-1] # 보통 금액/단가는 행의 우측 끝에 위치함
+    if numbers: price = numbers[-1]
 
     return {
         'item_name': item_name,
@@ -55,50 +49,55 @@ def extract_smart_data(row_values):
         'raw_data': " | ".join(cleaned_vals)
     }
 
+def read_file_safely(file_path):
+    """표준 .xlsx 및 CSV, 텍스트 파일 읽기"""
+    dfs = []
+    # 1. .xlsx 파일 읽기
+    try:
+        excel_file = pd.ExcelFile(file_path)
+        for sheet in excel_file.sheet_names:
+            dfs.append(pd.read_excel(file_path, sheet_name=sheet).fillna(''))
+        return dfs
+    except Exception:
+        pass
+
+    # 2. CSV / 텍스트 기반 파일 읽기
+    for enc in ['cp949', 'utf-8', 'euc-kr']:
+        try:
+            df = pd.read_csv(file_path, encoding=enc, on_bad_lines='skip', sep=None, engine='python').fillna('')
+            dfs.append(df)
+            return dfs
+        except Exception:
+            pass
+
+    return dfs
+
 def search_in_excel_files(keyword):
     results = []
     if not keyword:
         return results
 
-    # 띄어쓰기 무시 검색을 위한 키워드 정규화
     clean_keyword = re.sub(r'\s+', '', keyword).lower()
     files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.xls', '.xlsx', '.csv'))]
 
     for filename in files:
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-        dfs = []
-
-        # 1. 파일 형식별 예외 없는 읽기 처리
         try:
-            if filename.endswith('.csv'):
-                dfs.append(pd.read_csv(file_path).fillna(''))
-            else:
-                try:
-                    excel_file = pd.ExcelFile(file_path)
-                    for sheet in excel_file.sheet_names:
-                        dfs.append(pd.read_excel(file_path, sheet_name=sheet).fillna(''))
-                except Exception:
-                    # 구형 .xls 포맷 대응
-                    excel_file = pd.ExcelFile(file_path, engine='xlrd')
-                    for sheet in excel_file.sheet_names:
-                        dfs.append(pd.read_excel(file_path, sheet_name=sheet, engine='xlrd').fillna(''))
+            dfs = read_file_safely(file_path)
+            for df in dfs:
+                for idx, row in df.iterrows():
+                    row_str = "".join([str(val) for val in row.values])
+                    clean_row_str = re.sub(r'\s+', '', row_str).lower()
+
+                    if clean_keyword in clean_row_str:
+                        parsed = extract_smart_data(row.values)
+                        if parsed:
+                            parsed['filename'] = filename
+                            results.append(parsed)
+                        if len(results) >= 100:
+                            return results
         except Exception:
             continue
-
-        # 2. 융통성 있는 데이터 검색
-        for df in dfs:
-            for idx, row in df.iterrows():
-                row_str = "".join([str(val) for val in row.values])
-                clean_row_str = re.sub(r'\s+', '', row_str).lower()
-
-                if clean_keyword in clean_row_str:
-                    parsed = extract_smart_data(row.values)
-                    if parsed:
-                        parsed['filename'] = filename
-                        results.append(parsed)
-                    
-                    if len(results) >= 100: # 최대 100개까지 확장 검색
-                        return results
     return results
 
 @app.route('/', methods=['GET', 'POST'])
